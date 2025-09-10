@@ -1,19 +1,24 @@
 from flask import jsonify, request
 
 from . import app, db
+from .error_handlers import InvalidAPIUsage
 from .models import Opinion
 from .views import random_opinion
 
 
 @app.route('/api/opinions/<int:id>/', methods=['GET'])
 def get_opinion(id):
-    opinion = Opinion.query.get_or_404(id)
+    opinion = Opinion.query.get(id) # убрано get_or_404 потому что вёрнёт ошибку через html
+    if opinion is None:
+        raise InvalidAPIUsage('Мнение с указанным id не найдено', 404)
     return jsonify({'opinion': opinion.to_dict()}), 200
 
 
 @app.route('/api/opinions/<int:id>/', methods=['PATCH'])
 def update_opinion(id):
     data = request.get_json()
+    if Opinion.query.filter_by(text=data['text']).first() is not None:
+        raise InvalidAPIUsage('Такое мнение уже есть в базе данных')
     opinion = Opinion.query.get_or_404(id)
     opinion.title = data.get('title', opinion.title)
     opinion.text = data.get('text', opinion.text)
@@ -41,6 +46,10 @@ def get_opinions():
 @app.route('/api/opinions/', methods=['POST'])
 def add_opinion():
     data = request.get_json()
+    if 'title' not in data or 'text' not in data:
+        raise InvalidAPIUsage('В запросе отсутствуют обязательные поля')
+    if Opinion.query.filter_by(text=data['text']).first() is not None:
+        raise InvalidAPIUsage('Такое мнение уже есть в базе данных')
     opinion = Opinion()
     opinion.from_dict(data)
     db.session.add(opinion)
@@ -51,4 +60,6 @@ def add_opinion():
 @app.route('/api/get-random-opinion/', methods=['GET'])
 def get_random_opinion():
     opinion = random_opinion()
-    return jsonify({'opinion': opinion.to_dict()}), 200
+    if opinion is not None:
+        return jsonify({'opinion': opinion.to_dict()}), 200
+    raise InvalidAPIUsage('В базе данных нет мнений', 404)
